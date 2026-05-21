@@ -1,0 +1,17 @@
+# Box IM Bot SDK - Python Dependencies
+# Python 3.7+ required
+
+# HTTP client
+aiohttp>=3.8.0
+
+# WebSocket client
+websockets>=10.0
+
+# Optional: For better type checking
+mypy>=1.0.0
+types-aiohttp>=3.8.0
+types-websockets>=10.0
+
+# Optional: For code formatting
+black>=23.0.0
+isort>=5.12.0

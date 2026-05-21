@@ -971,6 +971,90 @@ class MessageManager:
     def on_group_message(self, handler: Callable[[Message], Any]) -> None:
         self.event_emitter.on('group_message', lambda data: handler(self._dict_to_message(data)))
     
+    async def load_offline_messages(self) -> List[Message]:
+        try:
+            result = await self.http_client.get('/message/private/loadOfflineMessage')
+            
+            messages = []
+            if result and isinstance(result, list):
+                for item in result:
+                    message = self._dict_to_message(item)
+                    self._cache_message(message)
+                    messages.append(message)
+            
+            return messages
+        except Exception as e:
+            self.logger.error("Failed to load offline messages", exc_info=e)
+            raise
+    
+    async def get_private_max_readed_id(self, friend_id: str) -> int:
+        try:
+            result = await self.http_client.get('/message/private/maxReadedId', {'friendId': friend_id})
+            return int(result.get('maxReadedId', 0)) if result else 0
+        except Exception as e:
+            self.logger.error("Failed to get max readed id", exc_info=e)
+            raise
+    
+    async def delete_private_message(self, message_id: str) -> None:
+        try:
+            await self.http_client.delete('/message/private/deleteMessage', {'messageId': message_id})
+            self._message_cache.pop(message_id, None)
+            self.logger.info("Private message deleted", message_id)
+        except Exception as e:
+            self.logger.error("Failed to delete private message", exc_info=e)
+            raise
+    
+    async def delete_private_chat(self, friend_id: str) -> None:
+        try:
+            await self.http_client.delete('/message/private/deleteChat', {'friendId': friend_id})
+            self._message_cache = {k: v for k, v in self._message_cache.items() if v.to_id != friend_id}
+            self.logger.info("Private chat deleted", friend_id)
+        except Exception as e:
+            self.logger.error("Failed to delete private chat", exc_info=e)
+            raise
+    
+    async def load_group_offline_messages(self) -> List[Message]:
+        try:
+            result = await self.http_client.get('/message/group/loadOfflineMessage')
+            
+            messages = []
+            if result and isinstance(result, list):
+                for item in result:
+                    message = self._dict_to_message(item)
+                    self._cache_message(message)
+                    messages.append(message)
+            
+            return messages
+        except Exception as e:
+            self.logger.error("Failed to load group offline messages", exc_info=e)
+            raise
+    
+    async def get_group_readed_users(self, group_id: str, message_id: str) -> List[str]:
+        try:
+            result = await self.http_client.get('/message/group/findReadedUsers', {'groupId': group_id, 'messageId': message_id})
+            return result.get('userIds', []) if result else []
+        except Exception as e:
+            self.logger.error("Failed to get group readed users", exc_info=e)
+            raise
+    
+    async def delete_group_message(self, message_id: str) -> None:
+        try:
+            await self.http_client.delete('/message/group/deleteMessage', {'messageId': message_id})
+            self._message_cache.pop(message_id, None)
+            self.logger.info("Group message deleted", message_id)
+        except Exception as e:
+            self.logger.error("Failed to delete group message", exc_info=e)
+            raise
+    
+    async def delete_group_chat(self, group_id: str) -> None:
+        try:
+            await self.http_client.delete('/message/group/deleteChat', {'groupId': group_id})
+            self._message_cache = {k: v for k, v in self._message_cache.items() if v.group_id != group_id}
+            self.logger.info("Group chat deleted", group_id)
+        except Exception as e:
+            self.logger.error("Failed to delete group chat", exc_info=e)
+            raise
+    
     def clear_cache(self) -> None:
         self._message_cache.clear()
     
@@ -1150,6 +1234,150 @@ class GroupManager:
     
     async def destroy(self) -> None:
         self.clear_cache()
+
+
+# ============================================================================
+# 文件管理器
+# ============================================================================
+
+
+class FileManager:
+    def __init__(self, http_client: HttpClient):
+        self.http_client = http_client
+        self.logger = Logger.get_instance('FileManager')
+    
+    async def upload_image(self, file_path: str) -> str:
+        try:
+            self.logger.info(f"Uploading image: {file_path}")
+            
+            with open(file_path, 'rb') as f:
+                data = aiohttp.FormData()
+                data.add_field('file', f, filename=file_path.split('/')[-1])
+                result = await self.http_client.post('/image/upload', data)
+            
+            return result.get('url', '')
+        
+        except Exception as e:
+            self.logger.error("Failed to upload image", exc_info=e)
+            raise
+    
+    async def upload_file(self, file_path: str) -> str:
+        try:
+            self.logger.info(f"Uploading file: {file_path}")
+            
+            with open(file_path, 'rb') as f:
+                data = aiohttp.FormData()
+                data.add_field('file', f, filename=file_path.split('/')[-1])
+                result = await self.http_client.post('/file/upload', data)
+            
+            return result.get('url', '')
+        
+        except Exception as e:
+            self.logger.error("Failed to upload file", exc_info=e)
+            raise
+
+
+# ============================================================================
+# WebRTC管理器
+# ============================================================================
+
+
+class WebRTCManager:
+    def __init__(self, http_client: HttpClient, user_id: str):
+        self.http_client = http_client
+        self.user_id = user_id
+        self.logger = Logger.get_instance('WebRTCManager')
+    
+    async def call(self, target_id: str, call_type: str = 'video') -> Dict[str, Any]:
+        try:
+            self.logger.info(f"Calling {target_id}")
+            
+            result = await self.http_client.post('/webrtc/private/call', {
+                'targetId': target_id,
+                'callType': call_type
+            })
+            
+            return result
+        
+        except Exception as e:
+            self.logger.error("Failed to make call", exc_info=e)
+            raise
+    
+    async def accept(self, call_id: str) -> Dict[str, Any]:
+        try:
+            self.logger.info(f"Accepting call: {call_id}")
+            
+            result = await self.http_client.post('/webrtc/private/accept', {'callId': call_id})
+            
+            return result
+        
+        except Exception as e:
+            self.logger.error("Failed to accept call", exc_info=e)
+            raise
+    
+    async def reject(self, call_id: str) -> None:
+        try:
+            self.logger.info(f"Rejecting call: {call_id}")
+            
+            await self.http_client.post('/webrtc/private/reject', {'callId': call_id})
+            
+        except Exception as e:
+            self.logger.error("Failed to reject call", exc_info=e)
+            raise
+    
+    async def cancel(self, call_id: str) -> None:
+        try:
+            self.logger.info(f"Canceling call: {call_id}")
+            
+            await self.http_client.post('/webrtc/private/cancel', {'callId': call_id})
+            
+        except Exception as e:
+            self.logger.error("Failed to cancel call", exc_info=e)
+            raise
+    
+    async def failed(self, call_id: str, reason: str) -> None:
+        try:
+            self.logger.info(f"Call failed: {call_id}, reason: {reason}")
+            
+            await self.http_client.post('/webrtc/private/failed', {
+                'callId': call_id,
+                'reason': reason
+            })
+            
+        except Exception as e:
+            self.logger.error("Failed to report call failure", exc_info=e)
+            raise
+    
+    async def hangup(self, call_id: str) -> None:
+        try:
+            self.logger.info(f"Hanging up call: {call_id}")
+            
+            await self.http_client.post('/webrtc/private/handup', {'callId': call_id})
+            
+        except Exception as e:
+            self.logger.error("Failed to hang up call", exc_info=e)
+            raise
+    
+    async def send_candidate(self, call_id: str, candidate: Dict[str, Any]) -> None:
+        try:
+            self.logger.debug(f"Sending candidate for call: {call_id}")
+            
+            await self.http_client.post('/webrtc/private/candidate', {
+                'callId': call_id,
+                'candidate': candidate
+            })
+            
+        except Exception as e:
+            self.logger.error("Failed to send candidate", exc_info=e)
+            raise
+    
+    async def send_heartbeat(self, call_id: str) -> None:
+        try:
+            await self.http_client.post('/webrtc/private/heartbeat', {'callId': call_id})
+            
+        except Exception as e:
+            self.logger.error("Failed to send heartbeat", exc_info=e)
+            raise
 
 
 # ============================================================================
@@ -1359,6 +1587,8 @@ class BotClient:
         self._message_manager: Optional[MessageManager] = None
         self._group_manager: Optional[GroupManager] = None
         self._user_manager: Optional[UserManager] = None
+        self._file_manager: Optional[FileManager] = None
+        self._webrtc_manager: Optional[WebRTCManager] = None
         
         self._user_id: Optional[str] = None
         self._initialized = False
@@ -1373,6 +1603,121 @@ class BotClient:
         raise NotImplementedError(
             "机器人登录接口不存在！请使用 login_with_password() 进行用户登录。"
         )
+    
+    async def register(
+        self,
+        username: str,
+        password: str,
+        nickname: Optional[str] = None,
+        email: Optional[str] = None,
+        phone: Optional[str] = None
+    ) -> UserLoginResponse:
+        try:
+            self.logger.info("Registering new user...")
+            
+            data = {
+                'userName': username,
+                'password': password
+            }
+            if nickname:
+                data['nickname'] = nickname
+            if email:
+                data['email'] = email
+            if phone:
+                data['phone'] = phone
+            
+            result = await self._http_client.post('/register', data)
+            
+            access_token = result.get('accessToken', '')
+            self._http_client.set_access_token(access_token)
+            self._ws_client.set_access_token(access_token)
+            
+            user_info_data = result.get('userInfo', {})
+            user_info = User(
+                user_id=str(user_info_data.get('userId', '')),
+                username=user_info_data.get('username', ''),
+                nickname=user_info_data.get('nickname'),
+                avatar=user_info_data.get('avatar'),
+                email=user_info_data.get('email'),
+                phone=user_info_data.get('phone'),
+                extra=user_info_data.get('extra', {})
+            )
+            
+            self._user_id = user_info.user_id
+            self._message_manager = MessageManager(self._http_client, self._ws_client, self._user_id)
+            self._group_manager = GroupManager(self._http_client, self._user_id)
+            self._user_manager = UserManager(self._http_client, self._user_id)
+            self._file_manager = FileManager(self._http_client)
+            self._webrtc_manager = WebRTCManager(self._http_client, self._user_id)
+            self._user_manager.set_current_user_info(user_info)
+            
+            await self._ws_client.connect()
+            
+            self.logger.info("Registration successful")
+            
+            return UserLoginResponse(
+                access_token=access_token,
+                refresh_token=result.get('refreshToken', ''),
+                expires_in=result.get('expiresIn', 0),
+                token_type=result.get('tokenType', 'Bearer'),
+                user_info=user_info
+            )
+            
+        except Exception as e:
+            self.logger.error("Registration failed", exc_info=e)
+            raise
+    
+    async def refresh_token(self, refresh_token: str) -> UserLoginResponse:
+        try:
+            self.logger.info("Refreshing token...")
+            
+            result = await self._http_client.put('/refreshToken', {'refreshToken': refresh_token})
+            
+            access_token = result.get('accessToken', '')
+            self._http_client.set_access_token(access_token)
+            self._ws_client.set_access_token(access_token)
+            
+            user_info_data = result.get('userInfo', {})
+            user_info = User(
+                user_id=str(user_info_data.get('userId', '')),
+                username=user_info_data.get('username', ''),
+                nickname=user_info_data.get('nickname'),
+                avatar=user_info_data.get('avatar'),
+                email=user_info_data.get('email'),
+                phone=user_info_data.get('phone'),
+                extra=user_info_data.get('extra', {})
+            )
+            
+            self._user_id = user_info.user_id
+            
+            self.logger.info("Token refreshed successfully")
+            
+            return UserLoginResponse(
+                access_token=access_token,
+                refresh_token=result.get('refreshToken', ''),
+                expires_in=result.get('expiresIn', 0),
+                token_type=result.get('tokenType', 'Bearer'),
+                user_info=user_info
+            )
+            
+        except Exception as e:
+            self.logger.error("Failed to refresh token", exc_info=e)
+            raise
+    
+    async def modify_password(self, old_password: str, new_password: str) -> None:
+        try:
+            self.logger.info("Modifying password...")
+            
+            await self._http_client.put('/modifyPwd', {
+                'oldPassword': old_password,
+                'newPassword': new_password
+            })
+            
+            self.logger.info("Password modified successfully")
+            
+        except Exception as e:
+            self.logger.error("Failed to modify password", exc_info=e)
+            raise
     
     async def login_with_password(
         self,
@@ -1409,6 +1754,8 @@ class BotClient:
             self._message_manager = MessageManager(self._http_client, self._ws_client, self._user_id)
             self._group_manager = GroupManager(self._http_client, self._user_id)
             self._user_manager = UserManager(self._http_client, self._user_id)
+            self._file_manager = FileManager(self._http_client)
+            self._webrtc_manager = WebRTCManager(self._http_client, self._user_id)
             self._user_manager.set_current_user_info(user_info)
             
             await self._ws_client.connect()
@@ -1457,6 +1804,18 @@ class BotClient:
         if not self._message_manager:
             raise Exception("Client not logged in")
         return self._message_manager
+    
+    @property
+    def file_manager(self) -> FileManager:
+        if not self._file_manager:
+            raise Exception("Client not logged in")
+        return self._file_manager
+    
+    @property
+    def webrtc_manager(self) -> WebRTCManager:
+        if not self._webrtc_manager:
+            raise Exception("Client not logged in")
+        return self._webrtc_manager
     
     async def send_private_message(self, to_id: str, content: Any, content_type: MessageType = MessageType.TEXT) -> Message:
         return await self.message_manager.send_private_message(to_id, content, content_type)
@@ -1586,5 +1945,6 @@ __all__ = [
     'MessageAck', 'TypingData', 'QueryOptions', 'FriendRequest', 'Notification',
     'RetryOptions', 'RateLimitConfig', 'CacheOptions', 'SDKStats',
     'Logger', 'BotEventEmitter', 'HttpClient', 'WebSocketClient',
-    'MessageManager', 'GroupManager', 'UserManager', 'BotClient', 'BoxIMBotSDK', 'create_bot_client',
+    'MessageManager', 'GroupManager', 'UserManager', 'FileManager', 'WebRTCManager',
+    'BotClient', 'BoxIMBotSDK', 'create_bot_client',
 ]
